@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>茶葉電子姬 | Tea Leaf Pet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+:root{--lime:#c8ff9e;--grey:#9b9b9b;--grey2:#bdbdbd;--line:#444}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#e8e8e8;font-family:"DotGothic16","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:56px 16px 24px;display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:28px;align-items:start}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}}
+.lang{position:fixed;top:12px;right:12px;display:flex;gap:6px;z-index:5}
+.lang button{background:#111;color:#e8e8e8;border:2px solid var(--line);padding:6px 12px;font:inherit;cursor:pointer}
+.lang button[aria-pressed=true]{background:var(--lime);color:#000;border-color:var(--lime)}
+button:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
+
+/* 掌機本體 */
+.device{background:var(--grey);padding:18px 18px 26px;border-radius:26px 26px 64px 64px;box-shadow:0 0 0 4px #000 inset,0 0 0 3px var(--grey2)}
+.screen{background:#000;border:4px solid #555;aspect-ratio:3/4;display:flex;flex-direction:column;padding:12px;gap:8px}
+.art{flex:1;min-height:0;position:relative}
+.art img{width:100%;height:100%;object-fit:contain;image-rendering:pixelated}
+.ph{position:absolute;inset:0;display:none;place-items:center;text-align:center;border:2px dashed var(--line);color:#777;font-size:14px;padding:8px}
+.txt{color:#fff;white-space:pre-line;font-size:18px;line-height:1.5;min-height:3em}
+.txt em{color:var(--lime);font-style:normal}
+.opts{display:grid;gap:4px}
+.opts button{background:none;border:0;color:#fff;font:inherit;font-size:17px;text-align:left;padding:4px 2px;cursor:pointer}
+.opts button:hover{color:var(--lime)}
+.keys{display:flex;justify-content:space-around;margin-top:20px}
+.key{width:66px;height:66px;border-radius:50%;background:var(--grey2);color:#fff;border:0;font:inherit;font-size:30px;cursor:pointer;box-shadow:0 4px 0 #6d6d6d}
+.key:active{transform:translateY(3px);box-shadow:0 1px 0 #6d6d6d}
+.key:disabled{opacity:.35;cursor:default}
+
+/* 科普卡片 */
+.card{border:2px solid var(--line);background:#111;padding:18px 20px;line-height:1.9;max-width:62ch}
+.card h2{margin:0 0 8px;font-size:20px;color:var(--lime);font-weight:400}
+.card p{margin:0 0 .8em;white-space:pre-line}
+.card .hint{color:#ffd27a}
+.foot{grid-column:1/-1;color:#777;font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<div class="lang" role="group" aria-label="Language">
+  <button data-l="zh" aria-pressed="true">中文</button>
+  <button data-l="en" aria-pressed="false">EN</button>
+</div>
+
+<main class="wrap">
+  <section class="device" aria-label="Game">
+    <div class="screen">
+      <div class="art"><img id="img" alt=""><div class="ph" id="ph"></div></div>
+      <div class="txt" id="txt" aria-live="polite"></div>
+      <div class="opts" id="opts"></div>
+    </div>
+    <div class="keys">
+      <button class="key" data-i="0" aria-label="A">A</button>
+      <button class="key" data-i="1" aria-label="B">B</button>
+      <button class="key" data-i="2" aria-label="C">C</button>
+    </div>
+  </section>
+
+  <aside class="card" id="card" aria-live="polite"></aside>
+  <p class="foot">新芳村歲末祭．國際交流組</p>
+</main>
+
+<script>
+/* =========================================================
+   內容資料區：想改文字、換圖、加路線，只要改這裡
+   img   = img/ 資料夾裡的檔名（找不到圖時會顯示佔位框）
+   text  = 掌機畫面上的短文字（中英都要寫短）
+   sci   = 右側科普卡片（長文字放這裡）
+   choices = A/B/C 的選項；to 是下一個畫面，hint 是選錯時的提示
+   ========================================================= */
+const UI = {
+  zh:{cont:"繼續", again:"重新遊玩", tip:"完成每個步驟後，這裡會出現製茶小知識。", hintT:"小提示"},
+  en:{cont:"Continue", again:"Play again", tip:"Tea-making notes will appear here after each step.", hintT:"Hint"}
+};
+const cont = to => [{label:{zh:UI.zh.cont,en:UI.en.cont}, to}];
+const ask = {zh:"小茶菁現在要做甚麼呢？",en:"What should the little leaf do now?"};
+const opt = {
+  sauna:{zh:"三溫暖",en:"Hot sauna"},
+  massage:{zh:"按摩",en:"Massage"},
+  dry:{zh:"吹乾身體",en:"Blow dry"}
+};
+
+const S = {
+  cover:{theme:"green", img:"cover.png",
+    text:{zh:"茶葉電子姬\n培養你的專屬茶葉！",en:"Tea Leaf Pet\nRaise your very own tea leaf!"},
+    choices:[{label:{zh:"開始",en:"Start"},to:"persona"}]},
+
+  persona:{img:"personality.png",
+    text:{zh:"一隻可愛的小茶菁被採收了！\n你希望牠是甚麼個性呢？",en:"A cute little tea leaf has been picked!\nWhat kind of personality should our little buddy have?"},
+    choices:[
+      {label:{zh:"新鮮可愛",en:"Fresh & cute"},to:"nf",set:"A"},
+      {label:{zh:"隨和穩重",en:"Easygoing & steady"},to:"ferm",set:"B"},
+      {label:{zh:"成熟主見",en:"Mature & decisive"},to:"hv",set:"C"}]},
+
+/* ====＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝= 新鮮可愛線（未發酵）：綠茶 ==＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝=== */
+  s1:{theme:"green", img:"green ask.png", text:ask, choices:[
+    {label:opt.sauna, to:"r_sauna"},
+    {label:opt.massage, hint:{zh:"還不行！酵素還很活躍，這時候揉捻，茶葉會更快氧化變色。綠茶要先「殺菁」。",en:"Not yet! The enzymes are still active, so rolling now would make the leaf oxidize faster. Green tea starts with fixation."}},
+    {label:opt.dry, hint:{zh:"先別急著吹乾！酵素還在作用的話，茶葉會慢慢變色、香氣也留不住。",en:"Don't dry it yet! With the enzymes still active, the leaf slowly changes color and the aroma won't last."}}]},
+
+  r_sauna:{img:"green sauna.png",
+    text:{zh:"做了三溫暖（殺菁），變得軟軟的，且固定了香氣與色澤。",en:"After the sauna (fixation), it turned soft, with aroma and color locked in."},
+    sci:{
+      zh:{t:"殺菁",p:["採摘後的茶葉裡，酵素很快就會開始發酵。要立刻用高溫破壞酵素活性、阻斷發酵，才能保住翠綠的顏色和新鮮的香氣。"]},
+      en:{t:"Fixation (kill-green)",p:["Once picked, the enzymes in the leaf start fermenting right away. High heat is applied at once to deactivate the enzymes and stop fermentation, keeping the green color and fresh aroma."]}},
+    choices:cont("s2")},
+
+  s2:{img:"green ask.png", text:ask, choices:[
+    {label:opt.sauna, hint:{zh:"小茶菁已經做過三溫暖了，接下來要幫牠塑形。",en:"The leaf has already had its sauna. Next, let's shape it."}},
+    {label:opt.massage, to:"r_massage"},
+    {label:opt.dry, hint:{zh:"現在吹乾的話，茶葉還軟軟的、形狀也還沒塑好。先按摩（揉捻）吧！",en:"If you dry it now, the leaf is still limp and unshaped. Massage (rolling) comes first!"}}]},
+
+  r_massage:{img:"green massage.png",
+    text:{zh:"經過揉捻，茶葉緊密捲曲並釋放出充滿風味的汁液，為沖泡出濃郁茶湯做好準備。",en:"Through the massage,the leaf curls up tightly and releases its flavorful juices, preparing it for a rich brew."},
+    sci:{
+      zh:{t:"揉捻",p:["把變軟的茶葉揉成條形或球形，同時揉破細胞壁，讓茶汁附著在葉面。沖泡時味道更容易釋出，外形也在這一步塑造。"]},
+      en:{t:"Rolling",p:["Softened leaves are rolled into strips or balls. The cell walls break and the juices coat the leaf, so flavor releases more easily when brewed, and the leaf gets its shape."]}},
+    choices:cont("s3")},
+
+  s3:{img:"green ask.png", text:ask, choices:[
+    {label:opt.sauna, hint:{zh:"三溫暖已經做過了，只剩最後一步：把水分吹乾。",en:"The sauna is done. Only one step left: drying."}},
+    {label:opt.massage, hint:{zh:"按摩已經做過了，只剩最後一步：把水分吹乾。",en:"The massage is done. Only one step left: drying."}},
+    {label:opt.dry, to:"r_dry"}]},
+
+  r_dry:{img:"green dry.png",
+    text:{zh:"吹乾了身體（乾燥），變得清爽，汁液乾掉後香氣附著在身上。",en:"After blow-drying, it feels fresh, and the dried juices keep the aroma on its leaves."},
+    sci:{
+      zh:{t:"乾燥",p:["把水分降到很低，讓一切變化停下來，茶葉才能長期保存，香氣也被固定在茶葉上。"]},
+      en:{t:"Drying",p:["Moisture is reduced to a very low level so all change stops. The tea keeps for a long time and the aroma is set."]}},
+    choices:cont("evolve1")},
+
+  evolve1:{img:"green evolve.png",
+    text:{zh:"小茶菁似乎要進化了！",en:"The little leaf is about to evolve!"},
+    choices:cont("evolve2")},
+
+  evolve2:{img:"green result.png",
+    text:{
+      A:{zh:"小茶菁開心地轉了一圈，身上散發出清透的翠綠光芒！",en:"The little leaf spins happily, glowing a clear, fresh green!"},
+      B:{zh:"小茶菁靜靜地站起來，身上的光芒溫柔而穩定。",en:"The little leaf stands up quietly, its glow soft and steady."},
+      C:{zh:"小茶菁挺直了身子，翠綠的光芒把整個竹籃都照亮了。",en:"The little leaf stands tall, its green glow lighting up the whole basket."}},
+    choices:cont("result")},
+
+  result:{img:"green tea.png",
+    text:{zh:"小茶菁 進化成了 <em>綠茶</em>！",en:"The little leaf evolved into <em>Green Tea</em>!"},
+    sci:{
+      zh:{t:"綠茶",p:[
+        "綠茶的精華在於與時間賽跑的殺青工藝，採摘後立即以高溫破壞酵素活性（三溫暖），徹底阻斷發酵，這才成就了它「乾茶綠、茶湯綠、葉底綠」的三綠視覺特色。",
+        "在氣味上，它宛如大自然的縮影，散發著清新滑順的嫩草與青豆香，日本的蒸青綠茶甚至會帶有獨特的海苔鮮味。正因為未經發酵破壞，它完美封存了茶葉最原始的營養精華，含有高濃度的兒茶素與維生素C，能發揮強大的抗氧化與促進代謝效果，更富含能放鬆身心的茶氨酸，是所有茶類中最具大自然鮮活生命力的一款茶。",
+        "台灣主要品種：三峽碧螺春\n出沒的飲料店：烏弄原茶（連鎖）、碧萃茶飲（三峽）"]},
+      en:{t:"Green Tea",p:[
+        "The essence of green tea is a race against time: right after picking, high heat (the “hot sauna”) deactivates the enzymes and stops fermentation completely. This gives green tea its “three greens”: green dry leaves, green liquor, and green infused leaves.",
+        "Its aroma is a miniature of nature, with fresh, smooth notes of young grass and green peas. Japanese steamed green teas can even carry a savory seaweed note. Because it is never fermented, it keeps the leaf's original nutrients, including plenty of catechins and vitamin C, which are known for antioxidant effects, along with L-theanine, which helps you relax. Of all teas, it is the one that feels most like living nature.",
+        "Main Taiwan cultivar: Sanxia Biluochun\nWhere to find it: UNOCHA 烏弄原茶(chain), Bicui BJ Tea（碧萃茶飲）(Sanxia)"]}},
+    choices:[{label:{zh:UI.zh.again,en:UI.en.again},to:"cover"}]}
+};
+
+
+/* ====＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝= 隨和穩重線（部分發酵）：東方美人茶 ==＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝=== */
+const THEME = {green:"#c8ff9e", amber:"#ffb347", yellow:"#e3dc7a", salmon:"#ec8b80", red:"#f0605f"};
+Object.assign(opt, {
+  sun:{zh:"曬太陽",en:"Sunbathe"},
+  indoor:{zh:"室內運動",en:"Indoor workout"},
+  rest:{zh:"發呆放鬆",en:"Zone out & relax"},
+  hot:{zh:"熱敷按摩",en:"Hot-compress massage"},
+  fire:{zh:"玩火",en:"Play with fire"}
+});
+const done = (zh,en) => ({zh,en});
+Object.assign(S, {
+  ferm:{theme:"amber", img:"amber ask.png",
+    text:{zh:"牠成為了 <em>部分發酵</em> 茶菁！",en:"It became a <em>partially fermented</em> tea leaf!"},
+    choices:cont("ob_s1")},
+
+  // 第 1 步：曬太陽
+  ob_s1:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.sun, to:"r_ob_sun"},
+    {label:opt.indoor, hint:done("先別進室內！東方美人要先曬曬太陽，讓茶葉開始變化。","Not indoors yet! The leaf starts with some sunshine to change.")},
+    {label:opt.sauna, hint:done("還沒萎凋就殺菁，香氣還來不及產生呢！先去曬太陽吧。","Fixing before withering would stop the aroma before it forms. Sunbathe first!")}]},
+
+  r_ob_sun:{img:"amber sun.png",
+    text:done("曬了太陽（日光萎凋），變得軟軟的，開始散發特別的味道。","After sunbathing (sun withering), it turned soft and started giving off a special aroma."),
+    sci:{
+      zh:{t:"日光萎凋",p:["鮮葉攤在陽光下，水分慢慢散失、葉子變軟，同時開始產生香氣成分，是茶葉香氣的起點。"]},
+      en:{t:"Sun withering",p:["Fresh leaves are spread in sunlight. They lose water and soften, and aroma compounds begin to form. This is where the tea fragrance begins."]}},
+    choices:cont("ob_s2")},
+
+  // 第 2 步：三溫暖
+  ob_s2:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.sun, hint:done("小茶菁已經曬過太陽了，接下來要怎麼辦呢？","The leaf has had its sunbath. What comes next?")},
+    {label:opt.indoor, hint:done("現在還不是室內運動的時候，先讓小茶菁三溫暖吧！","It's not time for indoor exercise yet. Give the leaf its sauna first!")},
+    {label:opt.sauna, to:"r_ob_sauna"}]},
+
+  r_ob_sauna:{img:"amber sauna.png",
+    text:done("做了三溫暖（殺菁），固定了香氣與色澤，變得放鬆。","After the sauna (fixation), aroma and color were locked in, and it relaxed."),
+    sci:{
+      zh:{t:"殺菁",p:["在發酵到適當程度時，用高溫停止發酵，固定香氣與色澤。"]},
+      en:{t:"Fixation (kill-green)",p:["Once fermentation has reached the right point, high heat stops it and locks in the aroma and color."]}},
+    choices:cont("ob_s3")},
+
+  // 第 3 步【分岔點】：發呆放鬆 → 東方美人；按摩 → 條狀包種茶
+  ob_s3:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.sauna, hint:done("三溫暖已經做過了，現在該讓牠休息一下。","The sauna is done. Time for the leaf to rest.")},
+    {label:opt.massage, to:"r_pz_massage"},
+    {label:opt.rest, to:"r_ob_rest"}]},
+
+  r_ob_rest:{img:"amber rest.png",
+    text:done("發呆放鬆後（靜置回潤），變得柔軟，身上開始散發熟果味與蜜香。","After zoning out (resting), it turned soft and began to smell of ripe fruit and honey."),
+    sci:{
+      zh:{t:"靜置回潤",p:["靜置回潤是部分茶類在殺菁後、揉捻前的關鍵步驟，通常以濕布包悶靜置約 10~30 分鐘，讓水分重新分布、葉片回軟並催化香氣轉化。"]},
+      en:{t:"Moisture Recovery)",p:["For certain teas, resting the leaves after kill-green and before rolling is a vital step. Wrapping them in a damp cloth for about 10 to 30 minutes helps moisture spread evenly, softens the leaves, and brings out richer aromatic notes."]}},
+    choices:cont("ob_s4")},
+
+  // 第 4 步：按摩（揉捻）
+  ob_s4:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.sauna, hint:done("三溫暖已經做過了。","The sauna is already done.")},
+    {label:opt.massage, to:"r_ob_massage"},
+    {label:opt.dry, hint:done("還沒揉捻就吹乾，形狀還沒定喔！先按摩吧。","Drying before rolling leaves the leaf unshaped. Massage first!")}]},
+
+  r_ob_massage:{img:"amber massage.png",
+   text:done("做了按摩（揉捻），變得小小的，且壓出許多汁液。","After rolling, the leaves shrank and a lot of tea juice was pressed out."),
+    sci:{
+      zh:{t:"揉捻",p:["使茶菁轉動相互磨擦，造成部分的茶芽組織受到破壞，茶芽汁液流出，黏附在茶芽表面，還具有整形的作用，使茶芽捲曲成為條索狀較為美觀，可減少茶葉成品的體積。 "]},
+      en:{t:"Rolling",p:["By applying mechanical or manual force, the fresh tea leaves are rotated and rubbed against each other. This process breaks down part of the leaf cell structure, releasing tea juices that coat the surface of the buds and leaves. It also helps shape the tea, curling the leaves into tight, aesthetically pleasing strips while reducing the overall volume of the finished product."]}},
+    choices:cont("ob_s5")},
+
+  // 第 5 步：吹乾身體（乾燥）
+  ob_s5:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.sauna, hint:done("三溫暖已經做過了，只剩最後一步。","The sauna is done. Only one step left.")},
+    {label:opt.massage, hint:done("按摩已經做過了，只剩最後一步。","The massage is done. Only one step left.")},
+    {label:opt.dry, to:"r_ob_dry"}]},
+  
+  r_ob_dry:{img:"amber dry.png",
+   text:done("吹乾了身體（乾燥），變得清爽，汁液乾掉後香氣附著在身上。", "After blow-drying, it feels fresh, and the dried juices keep the aroma on its leaves."),
+   sci:{
+      zh:{t:"乾燥",p:["透過高溫或分段加熱去除多餘水分，停止殘留酵素活性並穩定茶葉風味。"]},
+      en:{t:"Drying",p:["Excess moisture is removed through high-temperature or staged heating to halt residual enzyme activity and stabilize the tea's flavor."]}},
+  choices:cont("ob_evolve1")},
+
+  ob_evolve1:{img:"amber evolve.png", text:S.evolve1.text, choices:cont("ob_evolve2")},
+
+  ob_evolve2:{img:"amber beauty dot.png",
+    text:done("小茶菁散發出琥珀色的光芒，蜜香慢慢在空氣中散開。","The little leaf glows amber, and a honey aroma drifts through the air."),
+    choices:cont("ob_result")},
+
+  ob_result:{img:"amber beauty.png",
+    text:done("小茶菁 進化成了 <em>東方美人茶</em>！","The little leaf evolved into <em>Oriental Beauty tea</em>!"),
+    sci:{
+      zh:{t:"東方美人茶",p:[
+        "當茶芽被小綠葉蟬吸食後，茶樹為了自我防衛，會分泌出特殊的防禦物質，這正是它誕生絕美蜜香與熟果香的關鍵。它的視覺極具觀賞性，茶葉同時呈現白、綠、黃、紅、褐五種色澤，猶如花瓣般斑斕，沖泡出的茶湯則呈現瑰麗的琥珀色。",
+        "在營養上，經過深度的發酵轉化，茶葉中的茶多酚轉變成豐富的茶黃素與茶紅素，這讓它不僅具備良好的抗氧化與溫潤養胃功效，性質也比綠茶更加溫和不刺激，入口甘甜不苦澀，充滿了醇厚與和諧的高價茶種。",
+        "台灣主要產地：新竹（北埔鄉、峨眉鄉）、苗栗（頭份市、銅鑼鄉）、新北（坪林區、石碇區）、桃園（龍潭區）\n出沒店面：京盛宇（台北）"]},
+      en:{t:"Oriental Beauty",p:[
+        "When tea buds are bitten by the small green leafhopper, the tea plant produces special defensive compounds to protect itself. This is the key to its beautiful honey aroma and ripe-fruit fragrance. It is a feast for the eyes too: the leaves show five colors at once (white, green, yellow, red and brown), like colorful petals, and the brewed liquor is a rich amber.",
+        "Through deep oxidation, the tea polyphenols turn into abundant theaflavins and thearubigins. This gives it good antioxidant properties and a gentle, stomach-friendly character. It is milder than green tea, sweet rather than bitter or astringent, with a mellow, harmonious body, and it is a premium tea.",
+        "Main growing areas in Taiwan: Hsinchu (Beipu, Emei), Miaoli (Toufen, Tongluo), New Taipei (Pinglin, Shiding), Taoyuan (Longtan)\nWhere to find it: Jing Sheng Yu (Taipei)"]}},
+    choices:[{label:{zh:UI.zh.again,en:UI.en.again},to:"cover"}]}
+});
+
+/* ==＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝=== 隨和穩重線的另一支：條狀包種茶（殺菁後直接揉捻） ====＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝= */
+Object.assign(S, {
+  r_pz_massage:{img:"amber massage.png", text:S.r_massage.text,
+    text:done("做了按摩（揉捻），變得小小的，且壓出許多汁液。","After rolling, the leaves shrank and a lot of tea juice was pressed out."),
+    sci:{
+      zh:{t:"揉捻",p:["使茶菁轉動相互磨擦，造成部分的茶芽組織受到破壞，茶芽汁液流出，黏附在茶芽表面，還具有整形的作用，使茶芽捲曲成為條索狀較為美觀，可減少茶葉成品的體積。 "]},
+      en:{t:"Rolling",p:["By applying mechanical or manual force, the fresh tea leaves are rotated and rubbed against each other. This process breaks down part of the leaf cell structure, releasing tea juices that coat the surface of the buds and leaves. It also helps shape the tea, curling the leaves into tight, aesthetically pleasing strips while reducing the overall volume of the finished product."]}},
+  choices:cont("pz_s4")},
+
+  // 第 4 步【分岔點】：吹乾身體 → 條狀包種茶；熱敷按摩（團揉）→ 鐵觀音
+  pz_s4:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.massage, hint:done("按摩已經做過了，接下來要選別的步驟。","The massage is done. Pick a different step.")},
+    {label:opt.dry, to:"r_pz_dry"},
+    {label:opt.hot, to:"r_tgy_hot"}]},
+
+  r_pz_dry:{img:"amber dry.png",
+   text:done("吹乾了身體（乾燥），變得清爽，汁液乾掉後香氣附著在身上。", "After blow-drying, it feels fresh, and the dried juices keep the aroma on its leaves."),
+   sci:{
+      zh:{t:"乾燥",p:["透過高溫或分段加熱去除多餘水分，停止殘留酵素活性並穩定茶葉風味。"]},
+      en:{t:"Drying",p:["Excess moisture is removed through high-temperature or staged heating to halt residual enzyme activity and stabilize the tea's flavor."]}},
+  choices:cont("pz_evolve1")},
+  pz_evolve1:{img:"amber evolve.png", text:S.evolve1.text, choices:cont("pz_evolve2")},
+  pz_evolve2:{img:"bag dot.png",
+    text:done("小茶菁散發出清雅的光芒，淡淡的花香飄散開來。","The little leaf glows softly as a delicate floral fragrance drifts by."),
+    choices:cont("pz_result")},
+
+  pz_result:{theme:"yellow", img:"amber bag.png",
+    text:done("小茶菁 進化成了 <em>條狀包種茶</em>！","The little leaf evolved into <em>strip-style Baozhong tea</em>!"),
+    sci:{
+      zh:{t:"條狀包種茶",p:[
+        "不採取鐵觀音那種揉成球狀的「團揉」工藝，而是保留了茶葉最初自然彎曲、緊結的條索狀，外觀呈現優雅的墨綠色。它的特色被老茶客形容為「香、濃、醇、韻、美」，沖泡出的茶湯呈現明亮蜜綠帶金黃色。",
+        "最令人驚豔的是其氣味，一入口完全沒有綠茶的青澀，反而高高揚起一陣極其清純的野百合、茉莉或玉蘭花香，香氣清揚優雅。在營養與性質上，輕發酵保留了適度的活性成分，富含活性茶多酚與氨基酸，能帶來極佳的生津止渴與醒腦效果，整體口感空靈、細緻且甘潤，完美展現了清純脫俗的台茶工藝。",
+        "台灣主要產地、品種：新北市坪林區（文山包種茶）\n出沒店面：文山包種茶本舖（線上、實體）"]},
+      en:{t:"Strip-style Baozhong",p:[
+        "Unlike Tieguanyin, it is not rolled into balls (“ball rolling”). It keeps the leaf's natural curve and tight, strip-like form, with an elegant dark-green look. Seasoned tea drinkers describe it as fragrant, rich, mellow, lingering and beautiful. The brewed liquor is a bright honey green with a golden tint.",
+        "Its aroma is the most striking part. There is none of the grassy bitterness of green tea. Instead, a pure fragrance of wild lily, jasmine or magnolia rises, clear and elegant. Because it is lightly fermented, it keeps a moderate amount of active compounds, rich in tea polyphenols and amino acids, said to quench thirst and refresh the mind. The overall taste is airy, delicate and smooth, showing the pure, refined craft of Taiwanese tea.",
+        "Main growing area and cultivar in Taiwan: Pinglin District, New Taipei City (Wenshan Baozhong)\nWhere to find it: Wenshan Baozhong Tea Shop (online and in-store)"]}},
+    choices:[{label:{zh:UI.zh.again,en:UI.en.again},to:"cover"}]}
+});
+
+/* ======================================= 隨和穩重線的第三支：鐵觀音（熱團揉 + 烘焙） =========================================== */
+Object.assign(S, {
+  r_tgy_hot:{img:"amber hot.png",
+    text:done("做了熱敷按摩（熱團揉），變得圓圓的、且更加緊緻。","After the hot-compress massage (hot ball rolling), it became round and even tighter."),
+    sci:{
+      zh:{t:"熱團揉",p:["用布巾把茶葉包成團，反覆揉壓，讓茶葉捲曲、緊結成球形。"]},
+      en:{t:"Hot Ball rolling",p:["The leaves are wrapped in cloth into a bundle and pressed and rolled again and again, so they curl and tighten into a ball shape."]}},
+    choices:cont("tgy_s5")},
+
+  tgy_s5:{img:"amber ask.png", text:ask, choices:[
+    {label:opt.fire, to:"r_tgy_fire"},
+    {label:opt.hot, hint:done("熱團揉已經做過了，接下來要讓香氣轉化。","The hot ball rolling is done. Next, let the aroma develop.")},
+    {label:opt.dry, hint:done("先別急著吹乾！茶葉要經過烘焙，才能烘出深邃的香氣。","Don't just dry it! The Leaf still needs roasting to bring out its deep aroma.")}]},
+
+  r_tgy_fire:{img:"amber fire.png",
+    text:done("玩了火（烘焙），變得乾爽，散發出濃郁的焦糖香。","After playing with fire (roasting), it dried out and gave off a rich caramel aroma."),
+    sci:{
+      zh:{t:"烘焙",p:["以炭火慢慢烘焙，除去水分，同時讓香氣轉化，帶出焙火香與熟果香。"]},
+      en:{t:"Roasting",p:["Slow roasting over charcoal drives off moisture and transforms the aroma, bringing out roasted notes and ripe-fruit fragrance."]}}, 
+    choices:cont("tgy_evolve1")},
+
+  tgy_evolve1:{img:"amber evolve.png", text:S.evolve1.text, choices:cont("tgy_evolve2")},
+  tgy_evolve2:{img:"amber iron dot.png",
+    text:done("小茶菁散發出熾熱的光芒，濃郁的焙火香瀰漫開來。","The little leaf radiates a fiery glow, and a rich roasted aroma fills the air."),
+    choices:cont("tgy_result")},
+
+  tgy_result:{theme:"salmon", img:"amber iron.png",
+    text:done("小茶菁 進化成了 <em>鐵觀音茶</em>！","The little leaf evolved into <em>Tieguanyin tea</em>!"),
+    sci:{
+      zh:{t:"鐵觀音茶",p:[
+        "鐵觀音茶的精華，源於其極其繁複的「團揉」工藝，製茶師需要將茶葉反覆用布巾包裹、揉壓與烘焙多達數十次，才鍛造出它如蜻蜓頭般緊結捲曲、沉重如鐵的外觀。",
+        "鐵觀音入口帶有濃郁的弱果酸味、桂花香，及經由炭火長時間慢烘所帶來的深邃焙火香與熟果香。在營養上，焙火過程降低了咖啡因與茶多酚的刺激性，性質溫和且極為暖胃潤腸，同時富含高度抗氧化的烏龍茶多酚，其層次豐富、回甘持久的醇厚滋味，最經得起時間與多次沖泡的考驗。",
+        "台灣主要產地：台北（木柵區）、新北（石門區）\n出沒店面：大茗（連鎖）"]},
+      en:{t:"Tieguanyin",p:[
+        "The essence of Tieguanyin lies in its elaborate “ball rolling” craft. The tea maker wraps the leaves in cloth, then presses, rolls and roasts them, repeating this dozens of times, to forge its tightly curled, dragonfly-head shape and iron-heavy feel.",
+        "In the cup it has a rich, faintly fruity acidity and an osmanthus fragrance, plus the deep roasted aroma and ripe-fruit notes that come from long, slow charcoal roasting. Roasting softens the harshness of caffeine and tea polyphenols, so the tea is gentle, said to be warming for the stomach and kind to digestion, while still rich in oolong polyphenols known for their antioxidant activity. Its layered body and lasting sweet aftertaste stand up to time and many infusions.",
+        "Main growing areas in Taiwan: Taipei (Muzha District), New Taipei (Shimen District)\nWhere to find it: Daming Tea 大茗 (chain)"]}},
+    choices:[{label:{zh:UI.zh.again,en:UI.en.again},to:"cover"}]}
+});
+
+
+/* ================================================= 成熟主見線（重發酵）：紅烏龍茶 ================================================ */
+Object.assign(S, {
+  // 選個性 A 之後的畫面（原型缺這張，依 B、C 的格式補上，請確認文字）
+  nf:{theme:"green", img:"green ask.png",
+    text:done("牠成為了 <em>不發酵</em> 茶菁！","It became an <em>unfermented</em> tea leaf!"),
+    choices:cont("s1")},
+
+  hv:{theme:"red", img:"red ask.png",
+    text:done("牠成為了 <em>重發酵</em> 茶菁！","It became a <em>heavily fermented</em> tea leaf!"),
+    choices:cont("ro_s1")},
+
+  // 順序：曬太陽 → 按摩 → 三溫暖 → 熱敷按摩 → 吹乾身體 → 玩火
+  ro_s1:{img:"red ask.png", text:ask, choices:[
+    {label:opt.sun, to:"r_ro_sun"},
+    {label:opt.massage, hint:done("還沒萎凋呢！茶葉水分還太多，先去曬太陽吧。","The leaf hasn\u2019t withered yet and still holds too much water. Sunbathe first!")},
+    {label:opt.sauna, hint:done("太早殺菁了！發酵還沒開始，先去曬太陽吧。","Too early for fixation! Fermentation hasn\u2019t even started. Sunbathe first.")}]},
+
+  r_ro_sun:{img:"red sun.png", 
+text:done("曬了太陽（日光萎凋），變得軟軟的，開始散發特別的味道。","After sunbathing (sun withering), it turned soft and started giving off a special aroma."),
+    sci:{
+      zh:{t:"日光萎凋",p:["鮮葉攤在陽光下，水分慢慢散失、葉子變軟，同時開始產生香氣成分，是茶葉香氣的起點。"]},
+      en:{t:"Sun withering",p:["Fresh leaves are spread in sunlight. They lose water and soften, and aroma compounds begin to form. This is where the tea fragrance begins."]}},
+  choices:cont("ro_s2")},
+
+  ro_s2:{img:"red ask.png", text:ask, choices:[
+    {label:opt.sun, hint:done("已經曬過太陽了，接下來要幫牠揉一揉。","The leaf has had its sunbath. Time for a massage.")},
+    {label:opt.massage, to:"r_ro_massage"},
+    {label:opt.sauna, hint:done("現在殺菁，發酵就停住了！重發酵的茶菁需要先按摩。","Fixing now would stop fermentation! Ｈeavily fermented need some massage first.")}]},
+
+  r_ro_massage:{img:"red massage.png", text:S.r_massage.text,
+    text:done("做了按摩（揉捻），變得小小的，且壓出許多汁液。","After rolling, the leaves shrank and a lot of tea juice was pressed out."),
+    sci:{
+      zh:{t:"揉捻",p:["使茶菁轉動相互磨擦，造成部分的茶芽組織受到破壞，茶芽汁液流出，黏附在茶芽表面，還具有整形的作用，使茶芽捲曲成為條索狀較為美觀，可減少茶葉成品的體積。 "]},
+      en:{t:"Rolling",p:["By applying mechanical or manual force, the fresh tea leaves are rotated and rubbed against each other. This process breaks down part of the leaf cell structure, releasing tea juices that coat the surface of the buds and leaves. It also helps shape the tea, curling the leaves into tight, aesthetically pleasing strips while reducing the overall volume of the finished product."]}},
+    choices:cont("ro_s3")},
+
+  ro_s3:{img:"red ask.png", text:ask, choices:[
+    {label:opt.sun, hint:done("太陽已經曬過了，現在要讓發酵停下來。","The sunbath is done. Now it\u2019s time to stop fermentation.")},
+    {label:opt.massage, hint:done("按摩已經做過了，現在要讓發酵停下來。","The massage is done. Now it\u2019s time to stop fermentation.")},
+    {label:opt.sauna, to:"r_ro_sauna"}]},
+
+  r_ro_sauna:{img:"red sauna.png", text:S.r_sauna.text,
+   text:{zh:"做了三溫暖（殺菁），變得軟軟的，且固定了香氣與色澤。",en:"After the sauna (fixation), it turned soft, with aroma and color locked in."},
+    sci:{
+      zh:{t:"殺菁",p:["採摘後的茶葉裡，酵素很快就會開始發酵。要立刻用高溫破壞酵素活性、阻斷發酵，才能保住翠綠的顏色和新鮮的香氣。"]},
+      en:{t:"Fixation (kill-green)",p:["Once picked, the enzymes in the leaf start fermenting right away. High heat is applied at once to deactivate the enzymes and stop fermentation, keeping the green color and fresh aroma."]}},
+    choices:cont("ro_s4")},
+
+  ro_s4:{img:"red ask.png", text:ask, choices:[
+    {label:opt.hot, to:"r_ro_hot"},
+    {label:opt.dry, hint:done("還沒整形呢！先熱敷按摩，把茶葉揉得更緊緻。","It\u2019s not shaped yet! Hot-compress massage first, to make it tighter.")},
+    {label:opt.fire, hint:done("先別玩火，形狀還沒整好。","No playing with fire yet. The shape isn\u2019t set.")}]},
+
+  r_ro_hot:{img:"red hot.png", text:S.r_tgy_hot.text, 
+    text:done("做了熱敷按摩（熱團揉），變得圓圓的、且更加緊緻。","After the hot-compress massage (hot ball rolling), it became round and even tighter."),
+    sci:{
+      zh:{t:"團揉",p:["用布巾把茶葉包成團，反覆揉壓，讓茶葉捲曲、緊結成球形。"]},
+      en:{t:"Ball rolling",p:["The leaves are wrapped in cloth into a bundle and pressed and rolled again and again, so they curl and tighten into a ball shape."]}},
+  choices:cont("ro_s5")},
+
+  ro_s5:{img:"red ask.png", text:ask, choices:[
+    {label:opt.hot, hint:done("熱團揉已經做過了。","The hot ball rolling is already done.")},
+    {label:opt.dry, to:"r_ro_dry"},
+    {label:opt.fire, hint:done("烘焙之前，要先把水分吹乾。","Dry the leaf first, before roasting.")}]},
+
+  r_ro_dry:{img:"red dry.png", text:S.r_dry.text, 
+   text:done("吹乾了身體（乾燥），變得清爽，汁液乾掉後香氣附著在身上。", "After blow-drying, it feels fresh, and the dried juices keep the aroma on its leaves."),
+   sci:{
+      zh:{t:"乾燥",p:["透過高溫或分段加熱去除多餘水分，停止殘留酵素活性並穩定茶葉風味。"]},
+      en:{t:"Drying",p:["Excess moisture is removed through high-temperature or staged heating to halt residual enzyme activity and stabilize the tea's flavor."]}},
+  choices:cont("ro_s6")},
+
+  ro_s6:{img:"red ask.png", text:ask, choices:[
+    {label:opt.hot, hint:done("熱團揉已經做過了，只剩最後一步。","The hot ball rolling is done. Only one step left.")},
+    {label:opt.dry, hint:done("吹乾已經做過了，只剩最後一步。","Drying is done. Only one step left.")},
+    {label:opt.fire, to:"r_ro_fire"}]},
+
+  r_ro_fire:{img:"red fire.png", text:S.r_tgy_fire.text, 
+   text:done("進行了烘焙（烘焙），茶葉的香氣變得更加濃郁。","After roasting, the aroma of the tea leaves becomes much more intense."),
+   sci:{
+      zh:{t:"烘焙",p:["在高溫下進行烘焙，使茶葉的香氣更加濃郁。"]},
+      en:{t:"Roasting",p:["Roast the tea leaves at high temperature to enhance their aroma."]}},
+  choices:cont("ro_evolve1")},
+
+  ro_evolve1:{img:"red evolve.png", text:S.evolve1.text, choices:cont("ro_evolve2")},
+  ro_evolve2:{img:"red oolong dot.png",
+    text:done("小茶菁散發出紅潤的光芒，熟果香與蜜香交織在一起。","The little leaf glows a warm red, with ripe-fruit and honey aromas mingling."),
+    choices:cont("ro_result")},
+
+  ro_result:{theme:"red", img:"red oolong.png",
+    text:done("小茶菁 進化成了 <em>紅烏龍茶</em>！","The little leaf evolved into <em>Red Oolong tea</em>!"),
+    sci:{
+      zh:{t:"紅烏龍茶",p:[
+        "紅烏龍茶的茶湯如上等紅茶般，散發著透亮澄澈的琥珀紅光澤。入口保留了烏龍茶標誌性的滑順喉韻，層層綻放出熟果的馥郁甘甜、野蜜芬芳，以及一抹細膩的焙火香氣。",
+        "經過80%至90%的深度氧化，兒茶素大量轉化為豐富的茶紅素與茶黃素，賦予茶湯極為甘甜、醇厚的口感，且幾乎毫無苦澀。這款茶性質溫和、不傷胃，不僅熱泡風味絕佳，更是現代冷泡茶的熱門首選——即便長時間浸泡，依然能展現濃郁飽滿的風味，且絕不會產生澀味。",
+        "台灣主要產地：台東（鹿野鄉高台、永安村、龍田村）\n出沒店面：紅烏茶水舖（台北）、臺東縣農會東遊季農產商城（線上）"]},
+      en:{t:"Red Oolong",p:[
+        "Resembling fine black tea, its brew glows with a luminous, crystal-clear amber-red. On the palate, it preserves oolong's signature velvety throat resonance, unfurling rich notes of luscious ripe fruit, wild honey, and a delicate kiss of toasty roast. ",
+        "It is fermented heavily, by as much as 80 to 90 percent, so its catechins turn largely into abundant theaflavins and thearubigins. This makes the taste very sweet and full, with no bitterness at all. It is also very gentle, said to be kind to the stomach, and suits both hot brewing and the cold brewing many people enjoy today, keeping its rich body even after long steeping.",
+        "Main growing areas in Taiwan: Taitung (Luye Township: Gaotai, Yong\u2019an Village, Longtian Village)\nWhere to find it: Red Oolong Tea (Taipei); Taitung County Farmers\u2019 Association farm-products online store"]}},
+    choices:[{label:{zh:UI.zh.again,en:UI.en.again},to:"cover"}]}
+});
+
+/* =========================== 引擎 =========================== */
+let lang = (navigator.language||"").startsWith("zh") ? "zh" : "en";
+try{ lang = localStorage.getItem("lang") || lang; }catch(e){}
+let cur = "cover", persona = "A", sciNow = null, hintNow = null, themeKey = "green";
+
+const $ = id => document.getElementById(id);
+const pick = t => (t && t.A) ? t[persona] : t;   // 依個性選文字
+
+function render(){
+  const s = S[cur];
+  document.documentElement.lang = lang === "zh" ? "zh-Hant" : "en";
+  if (s.theme) { themeKey = s.theme; document.documentElement.style.setProperty("--lime", THEME[s.theme]); }
+
+  // 圖片（找不到就顯示佔位框）
+  const img = $("img"), ph = $("ph");
+  img.style.display = "block"; ph.style.display = "none";
+  // "@名稱" = 動作插圖，依目前路線的顏色從 img/<顏色>/ 讀取；其他直接讀 img/
+  const path = s.img[0] === "@" ? "img/" + themeKey + "/" + s.img.slice(1) + ".png" : "img/" + s.img;
+  img.onerror = () => { img.style.display = "none"; ph.style.display = "grid"; ph.textContent = path; };
+  img.src = path;
+
+  $("txt").innerHTML = pick(s.text)[lang];
+
+  const box = $("opts"); box.innerHTML = "";
+  document.querySelectorAll(".key").forEach((k,i) => k.disabled = !s.choices[i]);
+  s.choices.forEach((c,i) => {
+    const b = document.createElement("button");
+    b.textContent = "ABC"[i] + "　" + c.label[lang];
+    b.onclick = () => choose(i);
+    box.appendChild(b);
+  });
+
+  // 科普卡片
+  const card = $("card");
+  const u = UI[lang];
+  let html = "";
+  if (hintNow) html += `<h2>${u.hintT}</h2><p class="hint">${hintNow[lang]}</p>`;
+  if (sciNow) {
+    const d = sciNow[lang];
+    html += `<h2>${d.t}</h2>` + d.p.map(p => `<p>${p}</p>`).join("");
+  } else if (!hintNow) html = `<p>${u.tip}</p>`;
+  card.innerHTML = html;
+}
+
+function choose(i){
+  const c = S[cur].choices[i];
+  if (!c) return;
+  if (c.hint){ hintNow = c.hint; render(); return; }
+  hintNow = null;
+  if (c.set) persona = c.set;
+  cur = c.to;
+  if (cur === "cover") sciNow = null;
+  if (S[cur].sci) sciNow = S[cur].sci;
+  render();
+}
+
+document.querySelectorAll(".key").forEach(k => k.onclick = () => choose(+k.dataset.i));
+document.addEventListener("keydown", e => {
+  const i = {a:0,b:1,c:2}[e.key.toLowerCase()];
+  if (i !== undefined) choose(i);
+});
+document.querySelectorAll(".lang button").forEach(b => b.onclick = () => {
+  lang = b.dataset.l;
+  try{ localStorage.setItem("lang", lang); }catch(e){}
+  document.querySelectorAll(".lang button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  render();
+});
+document.querySelectorAll(".lang button").forEach(x => x.setAttribute("aria-pressed", x.dataset.l === lang));
+render();
+</script>
+</body>
+</html>
